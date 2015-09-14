@@ -10,14 +10,9 @@ import (
 	"github.com/tabalt/gracehttp"
 )
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("hello app on gracehttp!\n"))
-}
-
 func main() {
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", handler)
 	mux.HandleFunc("/sleep/", func(w http.ResponseWriter, r *http.Request) {
 		duration, err := time.ParseDuration(r.FormValue("duration"))
 		if err != nil {
@@ -35,6 +30,8 @@ func main() {
 			os.Getpid(),
 		)
 	})
+
+	log.Println(fmt.Sprintf("Serving localhost:8080 with pid %d.", os.Getpid()))
 
 	err := gracehttp.ListenAndServe("localhost:8080", mux)
 	if err != nil {
