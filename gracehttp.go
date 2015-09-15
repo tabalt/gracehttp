@@ -34,7 +34,7 @@ func newGraceHttp(addr string, handler http.Handler) *GraceHttp {
 
 	// 实例化GraceHttp
 	return &GraceHttp{
-		Server: &http.Server{
+		httpServer: &http.Server{
 			Addr:    addr,
 			Handler: handler,
 		},
@@ -46,15 +46,15 @@ func newGraceHttp(addr string, handler http.Handler) *GraceHttp {
 
 // 支持优雅重启的http服务
 type GraceHttp struct {
-	Server   *http.Server
-	listener net.Listener
+	httpServer *http.Server
+	listener   net.Listener
 
 	isGraceful bool
 	signalChan chan os.Signal
 }
 
 func (this *GraceHttp) ListenAndServe() error {
-	addr := this.Server.Addr
+	addr := this.httpServer.Addr
 	if addr == "" {
 		addr = ":http"
 	}
@@ -70,14 +70,14 @@ func (this *GraceHttp) ListenAndServe() error {
 }
 
 func (this *GraceHttp) ListenAndServeTLS(certFile, keyFile string) error {
-	addr := this.Server.Addr
+	addr := this.httpServer.Addr
 	if addr == "" {
 		addr = ":https"
 	}
 
 	config := &tls.Config{}
-	if this.Server.TLSConfig != nil {
-		*config = *this.Server.TLSConfig
+	if this.httpServer.TLSConfig != nil {
+		*config = *this.httpServer.TLSConfig
 	}
 	if config.NextProtos == nil {
 		config.NextProtos = []string{"http/1.1"}
@@ -105,7 +105,7 @@ func (this *GraceHttp) Serve() error {
 	go this.handleSignals()
 
 	// 处理HTTP请求
-	err := this.Server.Serve(this.listener)
+	err := this.httpServer.Serve(this.listener)
 
 	// 跳出Serve处理代表 listener 已经close，等待所有已有的连接处理结束
 	this.listener.(*Listener).Wait()
@@ -228,8 +228,8 @@ func (this *GraceHttp) fork() error {
 
 func (this *GraceHttp) logf(format string, args ...interface{}) {
 
-	if this.Server.ErrorLog != nil {
-		this.Server.ErrorLog.Printf(format, args...)
+	if this.httpServer.ErrorLog != nil {
+		this.httpServer.ErrorLog.Printf(format, args...)
 	} else {
 		log.Printf(format, args...)
 	}
