@@ -15,16 +15,16 @@ import (
 
 // refer http.ListenAndServe
 func ListenAndServe(addr string, handler http.Handler) error {
-	return newGraceHttp(addr, handler).ListenAndServe()
+	return newServer(addr, handler).ListenAndServe()
 }
 
 // refer http.ListenAndServeTLS
 func ListenAndServeTLS(addr string, certFile string, keyFile string, handler http.Handler) error {
-	return newGraceHttp(addr, handler).ListenAndServeTLS(certFile, keyFile)
+	return newServer(addr, handler).ListenAndServeTLS(certFile, keyFile)
 }
 
-// new grace http
-func newGraceHttp(addr string, handler http.Handler) *GraceHttp {
+// new server
+func newServer(addr string, handler http.Handler) *Server {
 
 	// 解析命令行参数
 	var isGraceful bool
@@ -32,8 +32,8 @@ func newGraceHttp(addr string, handler http.Handler) *GraceHttp {
 	flag.BoolVar(&isGraceful, "graceful", false, "graceful restart http application")
 	flag.Parse()
 
-	// 实例化GraceHttp
-	return &GraceHttp{
+	// 实例化Server
+	return &Server{
 		httpServer: &http.Server{
 			Addr:    addr,
 			Handler: handler,
@@ -45,7 +45,7 @@ func newGraceHttp(addr string, handler http.Handler) *GraceHttp {
 }
 
 // 支持优雅重启的http服务
-type GraceHttp struct {
+type Server struct {
 	httpServer *http.Server
 	listener   net.Listener
 
@@ -53,7 +53,7 @@ type GraceHttp struct {
 	signalChan chan os.Signal
 }
 
-func (this *GraceHttp) ListenAndServe() error {
+func (this *Server) ListenAndServe() error {
 	addr := this.httpServer.Addr
 	if addr == "" {
 		addr = ":http"
@@ -69,7 +69,7 @@ func (this *GraceHttp) ListenAndServe() error {
 	return this.Serve()
 }
 
-func (this *GraceHttp) ListenAndServeTLS(certFile, keyFile string) error {
+func (this *Server) ListenAndServeTLS(certFile, keyFile string) error {
 	addr := this.httpServer.Addr
 	if addr == "" {
 		addr = ":https"
@@ -99,7 +99,7 @@ func (this *GraceHttp) ListenAndServeTLS(certFile, keyFile string) error {
 	return this.Serve()
 }
 
-func (this *GraceHttp) Serve() error {
+func (this *Server) Serve() error {
 
 	// 处理信号
 	go this.handleSignals()
@@ -113,7 +113,7 @@ func (this *GraceHttp) Serve() error {
 	return err
 }
 
-func (this *GraceHttp) getNetListener(addr string) (ln net.Listener, err error) {
+func (this *Server) getNetListener(addr string) (ln net.Listener, err error) {
 
 	if this.isGraceful {
 		file := os.NewFile(3, "")
@@ -132,7 +132,7 @@ func (this *GraceHttp) getNetListener(addr string) (ln net.Listener, err error) 
 	return
 }
 
-func (this *GraceHttp) handleSignals() {
+func (this *Server) handleSignals() {
 	var sig os.Signal
 
 	signal.Notify(
@@ -176,7 +176,7 @@ func (this *GraceHttp) handleSignals() {
 	}
 }
 
-func (this *GraceHttp) shutdown() {
+func (this *Server) shutdown() {
 
 	// 通过设置超时使得进程不再接受新请求
 	this.listener.(*Listener).SetDeadline(time.Now())
@@ -185,7 +185,7 @@ func (this *GraceHttp) shutdown() {
 	this.listener.(*Listener).Close()
 }
 
-func (this *GraceHttp) fork() error {
+func (this *Server) fork() error {
 
 	// 启动子进程，并执行新程序
 
@@ -226,7 +226,7 @@ func (this *GraceHttp) fork() error {
 	return nil
 }
 
-func (this *GraceHttp) logf(format string, args ...interface{}) {
+func (this *Server) logf(format string, args ...interface{}) {
 
 	if this.httpServer.ErrorLog != nil {
 		this.httpServer.ErrorLog.Printf(format, args...)
