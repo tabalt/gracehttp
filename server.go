@@ -108,6 +108,7 @@ func (this *Server) Serve() error {
 	err := this.httpServer.Serve(this.listener)
 
 	// 跳出Serve处理代表 listener 已经close，等待所有已有的连接处理结束
+	this.logf("listener closed, waiting for connection close...")
 	this.listener.(*Listener).Wait()
 
 	return err
@@ -138,7 +139,6 @@ func (this *Server) handleSignals() {
 	signal.Notify(
 		this.signalChan,
 		syscall.SIGHUP,
-		syscall.SIGINT,
 		syscall.SIGTERM,
 	)
 
@@ -147,12 +147,6 @@ func (this *Server) handleSignals() {
 		sig = <-this.signalChan
 
 		switch sig {
-
-		case syscall.SIGINT:
-
-			this.logf("pid %d received SIGINT.", pid)
-			this.logf("graceful shutting down http server...")
-			this.shutdown()
 
 		case syscall.SIGTERM:
 
