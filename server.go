@@ -167,6 +167,8 @@ func (this *Server) handleSignals() {
 			err := this.fork()
 			if err != nil {
 				this.logf("fork error: %v.", err)
+			} else {
+				this.shutdown()
 			}
 
 		default:
@@ -175,6 +177,7 @@ func (this *Server) handleSignals() {
 	}
 }
 
+// 优雅关闭
 func (this *Server) shutdown() {
 
 	// 通过设置超时使得进程不再接受新请求
@@ -184,9 +187,8 @@ func (this *Server) shutdown() {
 	this.listener.(*Listener).Close()
 }
 
+// 启动子进程执行新程序
 func (this *Server) fork() error {
-
-	// 启动子进程，并执行新程序
 
 	listenerFd, err := this.listener.(*Listener).GetFd()
 	if err != nil {
@@ -213,12 +215,6 @@ func (this *Server) fork() error {
 	if err != nil {
 		return fmt.Errorf("failed to forkexec: %v.", err)
 	}
-
-	// 通过设置超时使得老进程不再接受新请求
-	this.listener.(*Listener).SetDeadline(time.Now())
-
-	// 关闭老进程的链接
-	this.listener.(*Listener).Close()
 
 	this.logf("fork exec to pid %d.", fork)
 
