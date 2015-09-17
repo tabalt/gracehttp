@@ -37,10 +37,6 @@ func (this *Listener) Accept() (net.Conn, error) {
 	return conn, nil
 }
 
-func (this *Listener) Close() error {
-	return this.TCPListener.Close()
-}
-
 func (this *Listener) Wait() {
 	this.waitGroup.Wait()
 }
