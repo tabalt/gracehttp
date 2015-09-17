@@ -2,7 +2,6 @@ package gracehttp
 
 import (
 	"crypto/tls"
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+)
+
+const (
+	GRACEFUL_ENVIRON_KEY    = "IS_GRACEFUL"
+	GRACEFUL_ENVIRON_STRING = GRACEFUL_ENVIRON_KEY + "=1"
 )
 
 // refer http.ListenAndServe
@@ -26,11 +30,12 @@ func ListenAndServeTLS(addr string, certFile string, keyFile string, handler htt
 // new server
 func newServer(addr string, handler http.Handler) *Server {
 
-	// 解析命令行参数
-	var isGraceful bool
-
-	flag.BoolVar(&isGraceful, "graceful", false, "graceful restart http application")
-	flag.Parse()
+	// 获取环境变量
+	isGraceful := false
+	gracefulEnvironValue := os.Getenv(GRACEFUL_ENVIRON_KEY)
+	if gracefulEnvironValue != "" {
+		isGraceful = true
+	}
 
 	// 实例化Server
 	return &Server{
@@ -190,21 +195,21 @@ func (this *Server) fork() error {
 
 	path := os.Args[0]
 
-	var args []string
-	for _, arg := range os.Args {
-		if arg == "-graceful" {
-			break
+	// 设置标识优雅重启的环境变量
+	environList := []string{}
+	for _, value := range os.Environ() {
+		if value != GRACEFUL_ENVIRON_STRING {
+			environList = append(environList, value)
 		}
-		args = append(args, arg)
 	}
-	args = append(args, "-graceful")
+	environList = append(environList, GRACEFUL_ENVIRON_STRING)
 
 	execSpec := &syscall.ProcAttr{
-		Env:   os.Environ(),
+		Env:   environList,
 		Files: []uintptr{os.Stdin.Fd(), os.Stdout.Fd(), os.Stderr.Fd(), listenerFd},
 	}
 
-	fork, err := syscall.ForkExec(path, args, execSpec)
+	fork, err := syscall.ForkExec(path, os.Args, execSpec)
 	if err != nil {
 		return fmt.Errorf("failed to forkexec: %v.", err)
 	}
