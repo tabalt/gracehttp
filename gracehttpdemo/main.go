@@ -12,8 +12,7 @@ import (
 
 func main() {
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/sleep/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/sleep/", func(w http.ResponseWriter, r *http.Request) {
 		duration, err := time.ParseDuration(r.FormValue("duration"))
 		if err != nil {
 			http.Error(w, err.Error(), 400)
@@ -33,7 +32,7 @@ func main() {
 
 	log.Println(fmt.Sprintf("Serving localhost:8080 with pid %d.", os.Getpid()))
 
-	err := gracehttp.ListenAndServe("localhost:8080", mux)
+	err := gracehttp.ListenAndServe("localhost:8080", nil)
 	if err != nil {
 		log.Println(err)
 	}
