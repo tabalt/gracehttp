@@ -30,9 +30,9 @@ func main() {
 		)
 	})
 
-	log.Println(fmt.Sprintf("Serving localhost:8080 with pid %d.", os.Getpid()))
+	log.Println(fmt.Sprintf("Serving :8080 with pid %d.", os.Getpid()))
 
-	err := gracehttp.ListenAndServe("localhost:8080", nil)
+	err := gracehttp.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Println(err)
 	}
