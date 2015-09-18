@@ -15,20 +15,23 @@ import (
 const (
 	GRACEFUL_ENVIRON_KEY    = "IS_GRACEFUL"
 	GRACEFUL_ENVIRON_STRING = GRACEFUL_ENVIRON_KEY + "=1"
+
+	DEFAULT_READ_TIMEOUT  = 30 * time.Second
+	DEFAULT_WRITE_TIMEOUT = DEFAULT_READ_TIMEOUT
 )
 
 // refer http.ListenAndServe
 func ListenAndServe(addr string, handler http.Handler) error {
-	return newServer(addr, handler).ListenAndServe()
+	return NewServer(addr, handler, DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_TIMEOUT).ListenAndServe()
 }
 
 // refer http.ListenAndServeTLS
 func ListenAndServeTLS(addr string, certFile string, keyFile string, handler http.Handler) error {
-	return newServer(addr, handler).ListenAndServeTLS(certFile, keyFile)
+	return NewServer(addr, handler, DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_TIMEOUT).ListenAndServeTLS(certFile, keyFile)
 }
 
 // new server
-func newServer(addr string, handler http.Handler) *Server {
+func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time.Duration) *Server {
 
 	// 获取环境变量
 	isGraceful := false
@@ -42,6 +45,9 @@ func newServer(addr string, handler http.Handler) *Server {
 		httpServer: &http.Server{
 			Addr:    addr,
 			Handler: handler,
+
+			ReadTimeout:  readTimeout,
+			WriteTimeout: writeTimeout,
 		},
 
 		isGraceful: isGraceful,
