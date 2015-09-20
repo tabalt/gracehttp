@@ -35,8 +35,7 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 
 	// 获取环境变量
 	isGraceful := false
-	gracefulEnvironValue := os.Getenv(GRACEFUL_ENVIRON_KEY)
-	if gracefulEnvironValue != "" {
+	if os.Getenv(GRACEFUL_ENVIRON_KEY) != "" {
 		isGraceful = true
 	}
 
