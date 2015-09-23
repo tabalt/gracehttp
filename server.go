@@ -69,12 +69,12 @@ func (this *Server) ListenAndServe() error {
 		addr = ":http"
 	}
 
-	ln, err := this.getNetListener(addr)
+	ln, err := this.getNetTCPListener(addr)
 	if err != nil {
 		return err
 	}
 
-	this.listener = newListener(ln.(*net.TCPListener))
+	this.listener = newListener(ln)
 
 	return this.Serve()
 }
@@ -100,12 +100,12 @@ func (this *Server) ListenAndServeTLS(certFile, keyFile string) error {
 		return err
 	}
 
-	ln, err := this.getNetListener(addr)
+	ln, err := this.getNetTCPListener(addr)
 	if err != nil {
 		return err
 	}
 
-	this.listener = tls.NewListener(newListener(ln.(*net.TCPListener)), config)
+	this.listener = tls.NewListener(newListener(ln), config)
 	return this.Serve()
 }
 
@@ -124,23 +124,26 @@ func (this *Server) Serve() error {
 	return err
 }
 
-func (this *Server) getNetListener(addr string) (ln net.Listener, err error) {
+func (this *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
+
+	var ln net.Listener
+	var err error
 
 	if this.isGraceful {
 		file := os.NewFile(3, "")
 		ln, err = net.FileListener(file)
 		if err != nil {
 			err = fmt.Errorf("net.FileListener error: %v", err)
-			return
+			return nil, err
 		}
 	} else {
 		ln, err = net.Listen("tcp", addr)
 		if err != nil {
 			err = fmt.Errorf("net.Listen error: %v", err)
-			return
+			return nil, err
 		}
 	}
-	return
+	return ln.(*net.TCPListener), nil
 }
 
 func (this *Server) handleSignals() {
