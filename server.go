@@ -152,8 +152,8 @@ func (this *Server) handleSignals() {
 
 	signal.Notify(
 		this.signalChan,
-		syscall.SIGHUP,
 		syscall.SIGTERM,
+		syscall.SIGUSR2,
 	)
 
 	pid := os.Getpid()
@@ -171,9 +171,9 @@ func (this *Server) handleSignals() {
 			this.listener.(*Listener).Close()
 			this.logf("listener of pid %d closed.", pid)
 
-		case syscall.SIGHUP:
+		case syscall.SIGUSR2:
 
-			this.logf("pid %d received SIGHUP.", pid)
+			this.logf("pid %d received SIGUSR2.", pid)
 			this.logf("graceful restart http server...")
 
 			err := this.startNewProcess()
