@@ -32,8 +32,7 @@ func main() {
 
 	log.Println(fmt.Sprintf("Serving :8080 with pid %d.", os.Getpid()))
 
-	err := gracehttp.ListenAndServe(":8080", nil)
-	if err != nil {
-		log.Println(err)
-	}
+	gracehttp.ListenAndServe(":8080", nil)
+
+	log.Println("Server stoped.")
 }
