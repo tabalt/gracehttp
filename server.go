@@ -118,8 +118,9 @@ func (this *Server) Serve() error {
 	err := this.httpServer.Serve(this.listener)
 
 	// 跳出Serve处理代表 listener 已经close，等待所有已有的连接处理结束
-	this.logf("listener closed, waiting for connection close...")
+	this.logf("waiting for connection close...")
 	this.listener.(*Listener).Wait()
+	this.logf("all connection closed, process with pid %d shutting down...", os.Getpid())
 
 	return err
 }
@@ -165,18 +166,23 @@ func (this *Server) handleSignals() {
 
 			this.logf("pid %d received SIGTERM.", pid)
 			this.logf("graceful shutting down http server...")
-			this.shutdown()
+
+			// 关闭老进程的连接
+			this.listener.(*Listener).Close()
+			this.logf("listener of pid %d closed.", pid)
 
 		case syscall.SIGHUP:
 
 			this.logf("pid %d received SIGHUP.", pid)
 			this.logf("graceful restart http server...")
 
-			err := this.fork()
+			err := this.startNewProcess()
 			if err != nil {
-				this.logf("fork error: %v.", err)
+				this.logf("start new process failed: %v, pid %d continue serve.", err)
 			} else {
-				this.shutdown()
+				// 关闭老进程的连接
+				this.listener.(*Listener).Close()
+				this.logf("listener of pid %d closed.", pid)
 			}
 
 		default:
@@ -185,22 +191,12 @@ func (this *Server) handleSignals() {
 	}
 }
 
-// 优雅关闭
-func (this *Server) shutdown() {
-
-	// 通过设置超时使得进程不再接受新请求
-	this.listener.(*Listener).SetDeadline(time.Now())
-
-	// 关闭链接
-	this.listener.(*Listener).Close()
-}
-
 // 启动子进程执行新程序
-func (this *Server) fork() error {
+func (this *Server) startNewProcess() error {
 
 	listenerFd, err := this.listener.(*Listener).GetFd()
 	if err != nil {
-		return fmt.Errorf("failed to get socket file descriptor: %v.", err)
+		return fmt.Errorf("failed to get socket file descriptor: %v", err)
 	}
 
 	path := os.Args[0]
@@ -221,10 +217,10 @@ func (this *Server) fork() error {
 
 	fork, err := syscall.ForkExec(path, os.Args, execSpec)
 	if err != nil {
-		return fmt.Errorf("failed to forkexec: %v.", err)
+		return fmt.Errorf("failed to forkexec: %v", err)
 	}
 
-	this.logf("fork exec to pid %d.", fork)
+	this.logf("start new process success, pid %d.", fork)
 
 	return nil
 }
