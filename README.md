@@ -50,7 +50,7 @@ Demo
 
 1. In a third terminal trigger a graceful server restart (using the pid from your output):
 
-        kill -SIGHUP 4388
+        kill -SIGUSR2 $pid
 
 1. Trigger another shorter request that finishes before the earlier request:
 
