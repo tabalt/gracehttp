@@ -26,7 +26,7 @@ func (this *Listener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	tc.SetKeepAlive(true)
-	tc.SetKeepAlivePeriod(3 * time.Minute)
+	tc.SetKeepAlivePeriod(time.Minute)
 
 	this.waitGroup.Add(1)
 
