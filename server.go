@@ -178,7 +178,7 @@ func (this *Server) handleSignals() {
 
 			err := this.startNewProcess()
 			if err != nil {
-				this.logf("start new process failed: %v, pid %d continue serve.", err)
+				this.logf("start new process failed: %v, pid %d continue serve.", err, pid)
 			} else {
 				// 关闭老进程的连接
 				this.listener.(*Listener).Close()
