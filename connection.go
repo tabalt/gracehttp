@@ -11,12 +11,12 @@ type Connection struct {
 	closed bool
 }
 
-func (this *Connection) Close() error {
+func (conn *Connection) Close() error {
 
-	if !this.closed {
-		this.closed = true
-		this.listener.waitGroup.Done()
+	if !conn.closed {
+		conn.closed = true
+		conn.listener.wg.Done()
 	}
 
-	return this.Conn.Close()
+	return conn.Conn.Close()
 }

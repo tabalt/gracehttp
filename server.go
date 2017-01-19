@@ -12,22 +12,13 @@ import (
 	"time"
 )
 
-const (
-	GRACEFUL_ENVIRON_KEY    = "IS_GRACEFUL"
-	GRACEFUL_ENVIRON_STRING = GRACEFUL_ENVIRON_KEY + "=1"
+// 支持优雅重启的http服务
+type Server struct {
+	httpServer *http.Server
+	listener   net.Listener
 
-	DEFAULT_READ_TIMEOUT  = 60 * time.Second
-	DEFAULT_WRITE_TIMEOUT = DEFAULT_READ_TIMEOUT
-)
-
-// refer http.ListenAndServe
-func ListenAndServe(addr string, handler http.Handler) error {
-	return NewServer(addr, handler, DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_TIMEOUT).ListenAndServe()
-}
-
-// refer http.ListenAndServeTLS
-func ListenAndServeTLS(addr string, certFile string, keyFile string, handler http.Handler) error {
-	return NewServer(addr, handler, DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_TIMEOUT).ListenAndServeTLS(certFile, keyFile)
+	isGraceful bool
+	signalChan chan os.Signal
 }
 
 // new server
@@ -54,40 +45,31 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 	}
 }
 
-// 支持优雅重启的http服务
-type Server struct {
-	httpServer *http.Server
-	listener   net.Listener
-
-	isGraceful bool
-	signalChan chan os.Signal
-}
-
-func (this *Server) ListenAndServe() error {
-	addr := this.httpServer.Addr
+func (srv *Server) ListenAndServe() error {
+	addr := srv.httpServer.Addr
 	if addr == "" {
 		addr = ":http"
 	}
 
-	ln, err := this.getNetTCPListener(addr)
+	ln, err := srv.getNetTCPListener(addr)
 	if err != nil {
 		return err
 	}
 
-	this.listener = newListener(ln)
+	srv.listener = NewListener(ln)
 
-	return this.Serve()
+	return srv.Serve()
 }
 
-func (this *Server) ListenAndServeTLS(certFile, keyFile string) error {
-	addr := this.httpServer.Addr
+func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error {
+	addr := srv.httpServer.Addr
 	if addr == "" {
 		addr = ":https"
 	}
 
 	config := &tls.Config{}
-	if this.httpServer.TLSConfig != nil {
-		*config = *this.httpServer.TLSConfig
+	if srv.httpServer.TLSConfig != nil {
+		*config = *srv.httpServer.TLSConfig
 	}
 	if config.NextProtos == nil {
 		config.NextProtos = []string{"http/1.1"}
@@ -100,37 +82,37 @@ func (this *Server) ListenAndServeTLS(certFile, keyFile string) error {
 		return err
 	}
 
-	ln, err := this.getNetTCPListener(addr)
+	ln, err := srv.getNetTCPListener(addr)
 	if err != nil {
 		return err
 	}
 
-	this.listener = tls.NewListener(newListener(ln), config)
-	return this.Serve()
+	srv.listener = tls.NewListener(NewListener(ln), config)
+	return srv.Serve()
 }
 
-func (this *Server) Serve() error {
+func (srv *Server) Serve() error {
 
 	// 处理信号
-	go this.handleSignals()
+	go srv.handleSignals()
 
 	// 处理HTTP请求
-	err := this.httpServer.Serve(this.listener)
+	err := srv.httpServer.Serve(srv.listener)
 
 	// 跳出Serve处理代表 listener 已经close，等待所有已有的连接处理结束
-	this.logf("waiting for connection close...")
-	this.listener.(*Listener).Wait()
-	this.logf("all connection closed, process with pid %d shutting down...", os.Getpid())
+	srv.logf("waiting for connection close...")
+	srv.listener.(*Listener).Wait()
+	srv.logf("all connection closed, process with pid %d shutting down...", os.Getpid())
 
 	return err
 }
 
-func (this *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
+func (srv *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
 
 	var ln net.Listener
 	var err error
 
-	if this.isGraceful {
+	if srv.isGraceful {
 		file := os.NewFile(3, "")
 		ln, err = net.FileListener(file)
 		if err != nil {
@@ -147,42 +129,42 @@ func (this *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
 	return ln.(*net.TCPListener), nil
 }
 
-func (this *Server) handleSignals() {
+func (srv *Server) handleSignals() {
 	var sig os.Signal
 
 	signal.Notify(
-		this.signalChan,
+		srv.signalChan,
 		syscall.SIGTERM,
 		syscall.SIGUSR2,
 	)
 
 	pid := os.Getpid()
 	for {
-		sig = <-this.signalChan
+		sig = <-srv.signalChan
 
 		switch sig {
 
 		case syscall.SIGTERM:
 
-			this.logf("pid %d received SIGTERM.", pid)
-			this.logf("graceful shutting down http server...")
+			srv.logf("pid %d received SIGTERM.", pid)
+			srv.logf("graceful shutting down http server...")
 
 			// 关闭老进程的连接
-			this.listener.(*Listener).Close()
-			this.logf("listener of pid %d closed.", pid)
+			srv.listener.(*Listener).Close()
+			srv.logf("listener of pid %d closed.", pid)
 
 		case syscall.SIGUSR2:
 
-			this.logf("pid %d received SIGUSR2.", pid)
-			this.logf("graceful restart http server...")
+			srv.logf("pid %d received SIGUSR2.", pid)
+			srv.logf("graceful restart http server...")
 
-			err := this.startNewProcess()
+			err := srv.startNewProcess()
 			if err != nil {
-				this.logf("start new process failed: %v, pid %d continue serve.", err, pid)
+				srv.logf("start new process failed: %v, pid %d continue serve.", err, pid)
 			} else {
 				// 关闭老进程的连接
-				this.listener.(*Listener).Close()
-				this.logf("listener of pid %d closed.", pid)
+				srv.listener.(*Listener).Close()
+				srv.logf("listener of pid %d closed.", pid)
 			}
 
 		default:
@@ -192,9 +174,9 @@ func (this *Server) handleSignals() {
 }
 
 // 启动子进程执行新程序
-func (this *Server) startNewProcess() error {
+func (srv *Server) startNewProcess() error {
 
-	listenerFd, err := this.listener.(*Listener).GetFd()
+	listenerFd, err := srv.listener.(*Listener).Fd()
 	if err != nil {
 		return fmt.Errorf("failed to get socket file descriptor: %v", err)
 	}
@@ -220,15 +202,15 @@ func (this *Server) startNewProcess() error {
 		return fmt.Errorf("failed to forkexec: %v", err)
 	}
 
-	this.logf("start new process success, pid %d.", fork)
+	srv.logf("start new process success, pid %d.", fork)
 
 	return nil
 }
 
-func (this *Server) logf(format string, args ...interface{}) {
+func (srv *Server) logf(format string, args ...interface{}) {
 
-	if this.httpServer.ErrorLog != nil {
-		this.httpServer.ErrorLog.Printf(format, args...)
+	if srv.httpServer.ErrorLog != nil {
+		srv.httpServer.ErrorLog.Printf(format, args...)
 	} else {
 		log.Printf(format, args...)
 	}

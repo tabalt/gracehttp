@@ -6,45 +6,46 @@ import (
 	"time"
 )
 
-func newListener(ln *net.TCPListener) net.Listener {
-	return &Listener{
-		TCPListener: ln,
-		waitGroup:   &sync.WaitGroup{},
-	}
-}
-
 type Listener struct {
 	*net.TCPListener
 
-	waitGroup *sync.WaitGroup
+	wg *sync.WaitGroup
 }
 
-func (this *Listener) Accept() (net.Conn, error) {
+func NewListener(tl *net.TCPListener) net.Listener {
+	return &Listener{
+		TCPListener: tl,
 
-	tc, err := this.AcceptTCP()
+		wg: &sync.WaitGroup{},
+	}
+}
+
+func (l *Listener) Fd() (uintptr, error) {
+	file, err := l.TCPListener.File()
+	if err != nil {
+		return 0, err
+	}
+	return file.Fd(), nil
+}
+
+func (l *Listener) Accept() (net.Conn, error) {
+
+	tc, err := l.AcceptTCP()
 	if err != nil {
 		return nil, err
 	}
 	tc.SetKeepAlive(true)
 	tc.SetKeepAlivePeriod(time.Minute)
 
-	this.waitGroup.Add(1)
+	l.wg.Add(1)
 
 	conn := &Connection{
 		Conn:     tc,
-		listener: this,
+		listener: l,
 	}
 	return conn, nil
 }
 
-func (this *Listener) Wait() {
-	this.waitGroup.Wait()
-}
-
-func (this *Listener) GetFd() (uintptr, error) {
-	file, err := this.TCPListener.File()
-	if err != nil {
-		return 0, err
-	}
-	return file.Fd(), nil
+func (l *Listener) Wait() {
+	l.wg.Wait()
 }
