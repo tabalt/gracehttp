@@ -1,6 +1,7 @@
 package gracehttp
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -8,29 +9,33 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
 
-// 支持优雅重启的http服务
+const (
+	GRACEFUL_ENVIRON_KEY    = "IS_GRACEFUL"
+	GRACEFUL_ENVIRON_STRING = GRACEFUL_ENVIRON_KEY + "=1"
+	GRACEFUL_LISTENER_FD    = 3
+)
+
+// HTTP server that supported graceful shutdown or restart
 type Server struct {
 	httpServer *http.Server
 	listener   net.Listener
 
-	isGraceful bool
-	signalChan chan os.Signal
+	isGraceful   bool
+	signalChan   chan os.Signal
+	shutdownChan chan bool
 }
 
-// new server
 func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time.Duration) *Server {
-
-	// 获取环境变量
 	isGraceful := false
 	if os.Getenv(GRACEFUL_ENVIRON_KEY) != "" {
 		isGraceful = true
 	}
 
-	// 实例化Server
 	return &Server{
 		httpServer: &http.Server{
 			Addr:    addr,
@@ -40,8 +45,9 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 			WriteTimeout: writeTimeout,
 		},
 
-		isGraceful: isGraceful,
-		signalChan: make(chan os.Signal),
+		isGraceful:   isGraceful,
+		signalChan:   make(chan os.Signal),
+		shutdownChan: make(chan bool),
 	}
 }
 
@@ -51,13 +57,12 @@ func (srv *Server) ListenAndServe() error {
 		addr = ":http"
 	}
 
-	ln, err := srv.getNetTCPListener(addr)
+	ln, err := srv.getNetListener(addr)
 	if err != nil {
 		return err
 	}
 
-	srv.listener = NewListener(ln)
-
+	srv.listener = ln
 	return srv.Serve()
 }
 
@@ -82,38 +87,32 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error {
 		return err
 	}
 
-	ln, err := srv.getNetTCPListener(addr)
+	ln, err := srv.getNetListener(addr)
 	if err != nil {
 		return err
 	}
 
-	srv.listener = tls.NewListener(NewListener(ln), config)
+	srv.listener = tls.NewListener(ln, config)
 	return srv.Serve()
 }
 
 func (srv *Server) Serve() error {
-
-	// 处理信号
 	go srv.handleSignals()
-
-	// 处理HTTP请求
 	err := srv.httpServer.Serve(srv.listener)
 
-	// 跳出Serve处理代表 listener 已经close，等待所有已有的连接处理结束
-	srv.logf("waiting for connection close...")
-	srv.listener.(*Listener).Wait()
-	srv.logf("all connection closed, process with pid %d shutting down...", os.Getpid())
+	srv.logf("waiting for connections closed.")
+	<-srv.shutdownChan
+	srv.logf("all connections closed.")
 
 	return err
 }
 
-func (srv *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
-
+func (srv *Server) getNetListener(addr string) (net.Listener, error) {
 	var ln net.Listener
 	var err error
 
 	if srv.isGraceful {
-		file := os.NewFile(3, "")
+		file := os.NewFile(GRACEFUL_LISTENER_FD, "")
 		ln, err = net.FileListener(file)
 		if err != nil {
 			err = fmt.Errorf("net.FileListener error: %v", err)
@@ -126,7 +125,7 @@ func (srv *Server) getNetTCPListener(addr string) (*net.TCPListener, error) {
 			return nil, err
 		}
 	}
-	return ln.(*net.TCPListener), nil
+	return ln, nil
 }
 
 func (srv *Server) handleSignals() {
@@ -138,76 +137,75 @@ func (srv *Server) handleSignals() {
 		syscall.SIGUSR2,
 	)
 
-	pid := os.Getpid()
 	for {
 		sig = <-srv.signalChan
-
 		switch sig {
-
 		case syscall.SIGTERM:
-
-			srv.logf("pid %d received SIGTERM.", pid)
-			srv.logf("graceful shutting down http server...")
-
-			// 关闭老进程的连接
-			srv.listener.(*Listener).Close()
-			srv.logf("listener of pid %d closed.", pid)
-
+			srv.logf("received SIGTERM, graceful shutting down HTTP server.")
+			srv.shutdownHTTPServer()
 		case syscall.SIGUSR2:
+			srv.logf("received SIGUSR2, graceful restarting HTTP server.")
 
-			srv.logf("pid %d received SIGUSR2.", pid)
-			srv.logf("graceful restart http server...")
-
-			err := srv.startNewProcess()
-			if err != nil {
-				srv.logf("start new process failed: %v, pid %d continue serve.", err, pid)
+			if pid, err := srv.startNewProcess(); err != nil {
+				srv.logf("start new process failed: %v, continue serving.", err)
 			} else {
-				// 关闭老进程的连接
-				srv.listener.(*Listener).Close()
-				srv.logf("listener of pid %d closed.", pid)
+				srv.logf("start new process successed, the new pid is %d.", pid)
+				srv.shutdownHTTPServer()
 			}
-
 		default:
-
 		}
 	}
 }
 
-// 启动子进程执行新程序
-func (srv *Server) startNewProcess() error {
+func (srv *Server) shutdownHTTPServer() {
+	if err := srv.httpServer.Shutdown(context.Background()); err != nil {
+		srv.logf("HTTP server shutdown error: %v", err)
+	} else {
+		srv.logf("HTTP server shutdown success.")
+		srv.shutdownChan <- true
+	}
+}
 
-	listenerFd, err := srv.listener.(*Listener).Fd()
+// start new process to handle HTTP Connection
+func (srv *Server) startNewProcess() (uintptr, error) {
+	listenerFd, err := srv.getTCPListenerFd()
 	if err != nil {
-		return fmt.Errorf("failed to get socket file descriptor: %v", err)
+		return 0, fmt.Errorf("failed to get socket file descriptor: %v", err)
 	}
 
-	path := os.Args[0]
-
-	// 设置标识优雅重启的环境变量
-	environList := []string{}
+	// set graceful restart env flag
+	envs := []string{}
 	for _, value := range os.Environ() {
 		if value != GRACEFUL_ENVIRON_STRING {
-			environList = append(environList, value)
+			envs = append(envs, value)
 		}
 	}
-	environList = append(environList, GRACEFUL_ENVIRON_STRING)
+	envs = append(envs, GRACEFUL_ENVIRON_STRING)
 
 	execSpec := &syscall.ProcAttr{
-		Env:   environList,
+		Env:   envs,
 		Files: []uintptr{os.Stdin.Fd(), os.Stdout.Fd(), os.Stderr.Fd(), listenerFd},
 	}
 
-	fork, err := syscall.ForkExec(path, os.Args, execSpec)
+	fork, err := syscall.ForkExec(os.Args[0], os.Args, execSpec)
 	if err != nil {
-		return fmt.Errorf("failed to forkexec: %v", err)
+		return 0, fmt.Errorf("failed to forkexec: %v", err)
 	}
 
-	srv.logf("start new process success, pid %d.", fork)
+	return uintptr(fork), nil
+}
 
-	return nil
+func (srv *Server) getTCPListenerFd() (uintptr, error) {
+	file, err := srv.listener.(*net.TCPListener).File()
+	if err != nil {
+		return 0, err
+	}
+	return file.Fd(), nil
 }
 
 func (srv *Server) logf(format string, args ...interface{}) {
+	pids := strconv.Itoa(os.Getpid())
+	format = "[pid " + pids + "] " + format
 
 	if srv.httpServer.ErrorLog != nil {
 		srv.httpServer.ErrorLog.Printf(format, args...)

@@ -11,7 +11,6 @@ import (
 )
 
 func main() {
-
 	http.HandleFunc("/sleep/", func(w http.ResponseWriter, r *http.Request) {
 		duration, err := time.ParseDuration(r.FormValue("duration"))
 		if err != nil {
@@ -30,9 +29,10 @@ func main() {
 		)
 	})
 
-	log.Println(fmt.Sprintf("Serving :8080 with pid %d.", os.Getpid()))
+	pid := os.Getpid()
+	address := ":8080"
 
-	gracehttp.ListenAndServe(":8080", nil)
-
-	log.Println("Server stoped.")
+	log.Printf("process with pid %d serving %s.\n", pid, address)
+	err := gracehttp.ListenAndServe(address, nil)
+	log.Printf("process with pid %d stoped, error: %s.\n", pid, err)
 }

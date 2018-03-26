@@ -3,6 +3,11 @@
 
 This is a simple and graceful http server for golang.
 
+Version
+-----
+
+1.2.0 (Require Go 1.8+)
+
 
 Usage
 -----
@@ -42,7 +47,7 @@ Demo
 
     This will output something like:
 
-        2015/09/14 20:01:08 Serving localhost:8080 with pid 4388.
+        2015/09/14 20:01:08 Serving :8080 with pid 4388.
 
 1. In a second terminal start a slow HTTP request
 
