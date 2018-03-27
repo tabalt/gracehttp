@@ -1,12 +1,12 @@
 
 # gracehttp
 
-This is a simple and graceful http server for golang.
+This is a simple and graceful HTTP server for Golang.
 
 Version
 -----
 
-1.2.0 (Require Go 1.8+)
+V1.2.0 (Require Go 1.8+)
 
 
 Usage
