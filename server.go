@@ -20,6 +20,16 @@ const (
 	GRACEFUL_LISTENER_FD    = 3
 )
 
+//日志回调函数签名
+type LogCallback func(format string, args ...interface{})
+
+//默认的日志回调函数
+func defaultLogCallback(format string, args ...interface{}) {
+	pids := strconv.Itoa(os.Getpid())
+	format = "[pid " + pids + "] " + format
+	log.Printf(format, args...)
+}
+
 // HTTP server that supported graceful shutdown or restart
 type Server struct {
 	httpServer *http.Server
@@ -28,6 +38,9 @@ type Server struct {
 	isGraceful   bool
 	signalChan   chan os.Signal
 	shutdownChan chan bool
+
+	infoLog LogCallback
+	errorLog LogCallback
 }
 
 func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time.Duration) *Server {
@@ -48,7 +61,18 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 		isGraceful:   isGraceful,
 		signalChan:   make(chan os.Signal),
 		shutdownChan: make(chan bool),
+
+		infoLog: defaultLogCallback,
+		errorLog: defaultLogCallback,
 	}
+}
+
+func (srv *Server) SetInfoLogCallback(infoLog LogCallback)  {
+	srv.infoLog = infoLog
+}
+
+func (srv *Server) SetErrorLogCallback(errorLog LogCallback)  {
+	srv.errorLog = errorLog
 }
 
 func (srv *Server) ListenAndServe() error {
@@ -100,9 +124,9 @@ func (srv *Server) Serve() error {
 	go srv.handleSignals()
 	err := srv.httpServer.Serve(srv.listener)
 
-	srv.logf("waiting for connections closed.")
+	srv.infoLog("waiting for connections closed.")
 	<-srv.shutdownChan
-	srv.logf("all connections closed.")
+	srv.infoLog("all connections closed.")
 
 	return err
 }
@@ -141,15 +165,15 @@ func (srv *Server) handleSignals() {
 		sig = <-srv.signalChan
 		switch sig {
 		case syscall.SIGTERM:
-			srv.logf("received SIGTERM, graceful shutting down HTTP server.")
+			srv.infoLog("received SIGTERM, graceful shutting down HTTP server.")
 			srv.shutdownHTTPServer()
 		case syscall.SIGUSR2:
-			srv.logf("received SIGUSR2, graceful restarting HTTP server.")
+			srv.infoLog("received SIGUSR2, graceful restarting HTTP server.")
 
 			if pid, err := srv.startNewProcess(); err != nil {
-				srv.logf("start new process failed: %v, continue serving.", err)
+				srv.errorLog("start new process failed: %v, continue serving.", err)
 			} else {
-				srv.logf("start new process successed, the new pid is %d.", pid)
+				srv.infoLog("start new process successed, the new pid is %d.", pid)
 				srv.shutdownHTTPServer()
 			}
 		default:
@@ -159,9 +183,9 @@ func (srv *Server) handleSignals() {
 
 func (srv *Server) shutdownHTTPServer() {
 	if err := srv.httpServer.Shutdown(context.Background()); err != nil {
-		srv.logf("HTTP server shutdown error: %v", err)
+		srv.errorLog("HTTP server shutdown error: %v", err)
 	} else {
-		srv.logf("HTTP server shutdown success.")
+		srv.infoLog("HTTP server shutdown success.")
 		srv.shutdownChan <- true
 	}
 }
@@ -201,15 +225,4 @@ func (srv *Server) getTCPListenerFd() (uintptr, error) {
 		return 0, err
 	}
 	return file.Fd(), nil
-}
-
-func (srv *Server) logf(format string, args ...interface{}) {
-	pids := strconv.Itoa(os.Getpid())
-	format = "[pid " + pids + "] " + format
-
-	if srv.httpServer.ErrorLog != nil {
-		srv.httpServer.ErrorLog.Printf(format, args...)
-	} else {
-		log.Printf(format, args...)
-	}
 }
