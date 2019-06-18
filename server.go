@@ -22,8 +22,9 @@ const (
 
 // HTTP server that supported graceful shutdown or restart
 type Server struct {
-	httpServer *http.Server
-	listener   net.Listener
+	*http.Server
+
+	listener net.Listener
 
 	isGraceful   bool
 	signalChan   chan os.Signal
@@ -37,7 +38,7 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 	}
 
 	return &Server{
-		httpServer: &http.Server{
+		Server: &http.Server{
 			Addr:    addr,
 			Handler: handler,
 
@@ -52,7 +53,7 @@ func NewServer(addr string, handler http.Handler, readTimeout, writeTimeout time
 }
 
 func (srv *Server) ListenAndServe() error {
-	addr := srv.httpServer.Addr
+	addr := srv.Addr
 	if addr == "" {
 		addr = ":http"
 	}
@@ -67,14 +68,14 @@ func (srv *Server) ListenAndServe() error {
 }
 
 func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error {
-	addr := srv.httpServer.Addr
+	addr := srv.Addr
 	if addr == "" {
 		addr = ":https"
 	}
 
 	config := &tls.Config{}
-	if srv.httpServer.TLSConfig != nil {
-		*config = *srv.httpServer.TLSConfig
+	if srv.TLSConfig != nil {
+		*config = *srv.TLSConfig
 	}
 	if config.NextProtos == nil {
 		config.NextProtos = []string{"http/1.1"}
@@ -98,7 +99,7 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error {
 
 func (srv *Server) Serve() error {
 	go srv.handleSignals()
-	err := srv.httpServer.Serve(srv.listener)
+	err := srv.Server.Serve(srv.listener)
 
 	srv.logf("waiting for connections closed.")
 	<-srv.shutdownChan
@@ -158,7 +159,7 @@ func (srv *Server) handleSignals() {
 }
 
 func (srv *Server) shutdownHTTPServer() {
-	if err := srv.httpServer.Shutdown(context.Background()); err != nil {
+	if err := srv.Shutdown(context.Background()); err != nil {
 		srv.logf("HTTP server shutdown error: %v", err)
 	} else {
 		srv.logf("HTTP server shutdown success.")
@@ -207,8 +208,8 @@ func (srv *Server) logf(format string, args ...interface{}) {
 	pids := strconv.Itoa(os.Getpid())
 	format = "[pid " + pids + "] " + format
 
-	if srv.httpServer.ErrorLog != nil {
-		srv.httpServer.ErrorLog.Printf(format, args...)
+	if srv.ErrorLog != nil {
+		srv.ErrorLog.Printf(format, args...)
 	} else {
 		log.Printf(format, args...)
 	}
